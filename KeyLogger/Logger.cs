@@ -18,7 +18,6 @@ namespace KeyLogger
 
         private static StringBuilder stringBuilder;
 
-
         private static string connectionString = "";
 
         public Logger()
